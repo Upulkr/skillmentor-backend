@@ -1,0 +1,7 @@
+target/
+logs/
+.git/
+.idea/
+.env
+Dockerfile
+HELP.md

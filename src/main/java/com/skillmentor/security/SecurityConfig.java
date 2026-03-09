@@ -44,11 +44,15 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
+        String clientUrl = System.getenv("CLIENT_URL");
+        if (clientUrl == null || clientUrl.isEmpty()) {
+            clientUrl = "http://localhost:5173";
+        }
+
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList(
                 "http://localhost:5173",
-                "https://your-deployed-app.vercel.app" // Add your real deployed URL here
-        ));
+                clientUrl));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Requested-With"));
         configuration.setAllowCredentials(true);
