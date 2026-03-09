@@ -1,5 +1,7 @@
 package com.skillmentor.exception;
 
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import com.skillmentor.dto.response.ErrorResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -19,308 +21,409 @@ import java.util.UUID;
  *
  * @Slf4j - Automatically creates 'log' field
  *
- * This handler addresses ALL 4 W's:
- * 1. WHAT - What error occurred?
- * 2. WHERE - Which endpoint/class?
- * 3. WHEN - What time?
- * 4. WHY - Root cause/reason?
+ *        This handler addresses ALL 4 W's:
+ *        1. WHAT - What error occurred?
+ *        2. WHERE - Which endpoint/class?
+ *        3. WHEN - What time?
+ *        4. WHY - Root cause/reason?
  */
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
 
-    /**
-     * VALIDATION ERROR HANDLER (400 Bad Request)
-     *
-     * Example:
-     * User sends: POST /api/v1/sessions/enroll with mentorId=null
-     * Error: @NotNull validation fails
-     * This handler catches it
-     */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationException(
-            MethodArgumentNotValidException ex,
-            WebRequest request
-    ) {
-        // Extract validation errors
-        Map<String, String> fieldErrors = new HashMap<>();
-        ex.getBindingResult().getFieldErrors()
-                .forEach(error -> fieldErrors.put(
-                        error.getField(),
-                        error.getDefaultMessage()
-                ));
+        /**
+         * VALIDATION ERROR HANDLER (400 Bad Request)
+         *
+         * Example:
+         * User sends: POST /api/v1/sessions/enroll with mentorId=null
+         * Error: @NotNull validation fails
+         * This handler catches it
+         */
+        @ExceptionHandler(MethodArgumentNotValidException.class)
+        public ResponseEntity<ErrorResponse> handleValidationException(
+                        MethodArgumentNotValidException ex,
+                        WebRequest request) {
+                // Extract validation errors
+                Map<String, String> fieldErrors = new HashMap<>();
+                ex.getBindingResult().getFieldErrors()
+                                .forEach(error -> fieldErrors.put(
+                                                error.getField(),
+                                                error.getDefaultMessage()));
 
-        // Get request details
-        String requestPath = request.getDescription(false).replace("uri=", "");
+                // Get request details
+                String requestPath = request.getDescription(false).replace("uri=", "");
+
+                /**
+                 * LOG THE ERROR - Answers all 4 W's
+                 *
+                 * WHAT: "Validation failed"
+                 * WHERE: Log the endpoint path and class
+                 * WHEN: Log the current timestamp
+                 * WHY: Include the field errors
+                 */
+                log.warn(
+                                "VALIDATION ERROR | " +
+                                                "WHAT: Validation failed on request | " +
+                                                "WHERE: {} | " +
+                                                "WHEN: {} | " +
+                                                "WHY: {}",
+                                requestPath,
+                                LocalDateTime.now(),
+                                fieldErrors);
+
+                // Build error response
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .error("Bad Request")
+                                .message("Validation failed")
+                                .path(requestPath)
+                                .errors(fieldErrors)
+                                .traceId("ERR_" + UUID.randomUUID())
+                                .build();
+
+                return ResponseEntity
+                                .status(HttpStatus.BAD_REQUEST)
+                                .body(errorResponse);
+        }
 
         /**
-         * LOG THE ERROR - Answers all 4 W's
+         * RESOURCE NOT FOUND HANDLER (404)
          *
-         * WHAT: "Validation failed"
-         * WHERE: Log the endpoint path and class
-         * WHEN: Log the current timestamp
-         * WHY: Include the field errors
+         * Example:
+         * User requests: GET /api/v1/mentors/999
+         * Mentor with ID 999 doesn't exist
          */
-        log.warn(
-                "VALIDATION ERROR | " +
-                        "WHAT: Validation failed on request | " +
-                        "WHERE: {} | " +
-                        "WHEN: {} | " +
-                        "WHY: {}",
-                requestPath,
-                LocalDateTime.now(),
-                fieldErrors
-        );
+        @ExceptionHandler(ResourceNotFoundException.class)
+        public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
+                        ResourceNotFoundException ex,
+                        WebRequest request) {
+                String requestPath = request.getDescription(false).replace("uri=", "");
 
-        // Build error response
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error("Bad Request")
-                .message("Validation failed")
-                .path(requestPath)
-                .errors(fieldErrors)
-                .traceId("ERR_" + UUID.randomUUID())
-                .build();
+                /**
+                 * LOG WITH 4 W's
+                 *
+                 * WHAT: "Resource not found"
+                 * WHERE: Path and class name
+                 * WHEN: Timestamp
+                 * WHY: Exception message explains why (e.g., "Mentor not found")
+                 */
+                log.warn(
+                                "RESOURCE NOT FOUND | " +
+                                                "WHAT: Resource lookup failed | " +
+                                                "WHERE: {} | " +
+                                                "WHEN: {} | " +
+                                                "WHY: {} | " +
+                                                "TraceID: {}",
+                                requestPath,
+                                LocalDateTime.now(),
+                                ex.getMessage(),
+                                UUID.randomUUID());
 
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(errorResponse);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.NOT_FOUND.value())
+                                .error("Not Found")
+                                .message(ex.getMessage())
+                                .path(requestPath)
+                                .traceId("ERR_" + UUID.randomUUID())
+                                .build();
 
-    /**
-     * RESOURCE NOT FOUND HANDLER (404)
-     *
-     * Example:
-     * User requests: GET /api/v1/mentors/999
-     * Mentor with ID 999 doesn't exist
-     */
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
-            ResourceNotFoundException ex,
-            WebRequest request
-    ) {
-        String requestPath = request.getDescription(false).replace("uri=", "");
+                return ResponseEntity
+                                .status(HttpStatus.NOT_FOUND)
+                                .body(errorResponse);
+        }
 
         /**
-         * LOG WITH 4 W's
+         * DOUBLE BOOKING EXCEPTION HANDLER (409 Conflict)
          *
-         * WHAT: "Resource not found"
-         * WHERE: Path and class name
-         * WHEN: Timestamp
-         * WHY: Exception message explains why (e.g., "Mentor not found")
+         * Example:
+         * Student tries to book mentor at already-booked time
          */
-        log.warn(
-                "RESOURCE NOT FOUND | " +
-                        "WHAT: Resource lookup failed | " +
-                        "WHERE: {} | " +
-                        "WHEN: {} | " +
-                        "WHY: {} | " +
-                        "TraceID: {}",
-                requestPath,
-                LocalDateTime.now(),
-                ex.getMessage(),
-                UUID.randomUUID()
-        );
+        @ExceptionHandler(DoubleBookingException.class)
+        public ResponseEntity<ErrorResponse> handleDoubleBookingException(
+                        DoubleBookingException ex,
+                        WebRequest request) {
+                String requestPath = request.getDescription(false).replace("uri=", "");
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(HttpStatus.NOT_FOUND.value())
-                .error("Not Found")
-                .message(ex.getMessage())
-                .path(requestPath)
-                .traceId("ERR_" + UUID.randomUUID())
-                .build();
+                /**
+                 * LOG WITH 4 W's AND EXTRA CONTEXT
+                 *
+                 * This is a critical business error, so we log more details
+                 */
+                log.error(
+                                "DOUBLE BOOKING ATTEMPT | " +
+                                                "WHAT: Mentor availability conflict | " +
+                                                "WHERE: {} | " +
+                                                "WHEN: {} | " +
+                                                "WHY: {} | " +
+                                                "SEVERITY: CRITICAL | " +
+                                                "TraceID: {}",
+                                requestPath,
+                                LocalDateTime.now(),
+                                ex.getMessage(),
+                                UUID.randomUUID());
 
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(errorResponse);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.CONFLICT.value())
+                                .error("Conflict")
+                                .message(ex.getMessage())
+                                .path(requestPath)
+                                .traceId("ERR_" + UUID.randomUUID())
+                                .build();
 
-    /**
-     * DOUBLE BOOKING EXCEPTION HANDLER (409 Conflict)
-     *
-     * Example:
-     * Student tries to book mentor at already-booked time
-     */
-    @ExceptionHandler(DoubleBookingException.class)
-    public ResponseEntity<ErrorResponse> handleDoubleBookingException(
-            DoubleBookingException ex,
-            WebRequest request
-    ) {
-        String requestPath = request.getDescription(false).replace("uri=", "");
+                return ResponseEntity
+                                .status(HttpStatus.CONFLICT)
+                                .body(errorResponse);
+        }
 
         /**
-         * LOG WITH 4 W's AND EXTRA CONTEXT
+         * UNAUTHORIZED HANDLER (403 Forbidden)
          *
-         * This is a critical business error, so we log more details
+         * Example:
+         * Student tries to access /admin/create-subject
          */
-        log.error(
-                "DOUBLE BOOKING ATTEMPT | " +
-                        "WHAT: Mentor availability conflict | " +
-                        "WHERE: {} | " +
-                        "WHEN: {} | " +
-                        "WHY: {} | " +
-                        "SEVERITY: CRITICAL | " +
-                        "TraceID: {}",
-                requestPath,
-                LocalDateTime.now(),
-                ex.getMessage(),
-                UUID.randomUUID()
-        );
+        @ExceptionHandler(UnauthorizedException.class)
+        public ResponseEntity<ErrorResponse> handleUnauthorizedException(
+                        UnauthorizedException ex,
+                        WebRequest request) {
+                String requestPath = request.getDescription(false).replace("uri=", "");
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(HttpStatus.CONFLICT.value())
-                .error("Conflict")
-                .message(ex.getMessage())
-                .path(requestPath)
-                .traceId("ERR_" + UUID.randomUUID())
-                .build();
+                /**
+                 * LOG SECURITY ISSUE - Log at WARN level
+                 *
+                 * Security violations should always be logged
+                 * They indicate potential security attacks
+                 */
+                log.warn(
+                                "UNAUTHORIZED ACCESS ATTEMPT | " +
+                                                "WHAT: Permission denied | " +
+                                                "WHERE: {} | " +
+                                                "WHEN: {} | " +
+                                                "WHY: {} | " +
+                                                "SECURITY_LEVEL: HIGH",
+                                requestPath,
+                                LocalDateTime.now(),
+                                ex.getMessage());
 
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(errorResponse);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.FORBIDDEN.value())
+                                .error("Forbidden")
+                                .message(ex.getMessage())
+                                .path(requestPath)
+                                .traceId("ERR_" + UUID.randomUUID())
+                                .build();
 
-    /**
-     * UNAUTHORIZED HANDLER (403 Forbidden)
-     *
-     * Example:
-     * Student tries to access /admin/create-subject
-     */
-    @ExceptionHandler(UnauthorizedException.class)
-    public ResponseEntity<ErrorResponse> handleUnauthorizedException(
-            UnauthorizedException ex,
-            WebRequest request
-    ) {
-        String requestPath = request.getDescription(false).replace("uri=", "");
+                return ResponseEntity
+                                .status(HttpStatus.FORBIDDEN)
+                                .body(errorResponse);
+        }
 
         /**
-         * LOG SECURITY ISSUE - Log at WARN level
+         * ACCESS DENIED EXCEPTION HANDLER (403 Forbidden)
          *
-         * Security violations should always be logged
-         * They indicate potential security attacks
+         * Catches Spring Security generic access denied errors.
+         * Before this, they were falling into the 500 catch-all.
          */
-        log.warn(
-                "UNAUTHORIZED ACCESS ATTEMPT | " +
-                        "WHAT: Permission denied | " +
-                        "WHERE: {} | " +
-                        "WHEN: {} | " +
-                        "WHY: {} | " +
-                        "SECURITY_LEVEL: HIGH",
-                requestPath,
-                LocalDateTime.now(),
-                ex.getMessage()
-        );
+        @ExceptionHandler({ AccessDeniedException.class, AuthorizationDeniedException.class })
+        public ResponseEntity<ErrorResponse> handleAccessDeniedException(
+                        Exception ex,
+                        WebRequest request) {
+                String requestPath = request.getDescription(false).replace("uri=", "");
+                String traceId = "ERR_" + UUID.randomUUID();
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(HttpStatus.FORBIDDEN.value())
-                .error("Forbidden")
-                .message(ex.getMessage())
-                .path(requestPath)
-                .traceId("ERR_" + UUID.randomUUID())
-                .build();
+                log.warn(
+                                "ACCESS DENIED | " +
+                                                "WHAT: Principal lacks required authority | " +
+                                                "WHERE: {} | " +
+                                                "WHEN: {} | " +
+                                                "WHY: {} | " +
+                                                "TRACE_ID: {}",
+                                requestPath,
+                                LocalDateTime.now(),
+                                ex.getMessage(),
+                                traceId);
 
-        return ResponseEntity
-                .status(HttpStatus.FORBIDDEN)
-                .body(errorResponse);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.FORBIDDEN.value())
+                                .error("Forbidden")
+                                .message("Access denied. You do not have the required permissions to perform this action.")
+                                .path(requestPath)
+                                .traceId(traceId)
+                                .build();
 
-    /**
-     * INVALID STATE TRANSITION HANDLER (400)
-     *
-     * Example:
-     * Session is COMPLETED, admin tries to confirm payment again
-     */
-    @ExceptionHandler(InvalidStateTransitionException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidStateTransitionException(
-            InvalidStateTransitionException ex,
-            WebRequest request
-    ) {
-        String requestPath = request.getDescription(false).replace("uri=", "");
+                return ResponseEntity
+                                .status(HttpStatus.FORBIDDEN)
+                                .body(errorResponse);
+        }
 
         /**
-         * LOG BUSINESS LOGIC ERROR
+         * INVALID STATE TRANSITION HANDLER (400)
          *
-         * This indicates incorrect workflow
-         * Should be logged for monitoring
+         * Example:
+         * Session is COMPLETED, admin tries to confirm payment again
          */
-        log.warn(
-                "INVALID STATE TRANSITION | " +
-                        "WHAT: Workflow violation | " +
-                        "WHERE: {} | " +
-                        "WHEN: {} | " +
-                        "WHY: {} | " +
-                        "ACTION: Review workflow logic",
-                requestPath,
-                LocalDateTime.now(),
-                ex.getMessage()
-        );
+        @ExceptionHandler(InvalidStateTransitionException.class)
+        public ResponseEntity<ErrorResponse> handleInvalidStateTransitionException(
+                        InvalidStateTransitionException ex,
+                        WebRequest request) {
+                String requestPath = request.getDescription(false).replace("uri=", "");
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error("Bad Request")
-                .message(ex.getMessage())
-                .path(requestPath)
-                .traceId("ERR_" + UUID.randomUUID())
-                .build();
+                /**
+                 * LOG BUSINESS LOGIC ERROR
+                 *
+                 * This indicates incorrect workflow
+                 * Should be logged for monitoring
+                 */
+                log.warn(
+                                "INVALID STATE TRANSITION | " +
+                                                "WHAT: Workflow violation | " +
+                                                "WHERE: {} | " +
+                                                "WHEN: {} | " +
+                                                "WHY: {} | " +
+                                                "ACTION: Review workflow logic",
+                                requestPath,
+                                LocalDateTime.now(),
+                                ex.getMessage());
 
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(errorResponse);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .error("Bad Request")
+                                .message(ex.getMessage())
+                                .path(requestPath)
+                                .traceId("ERR_" + UUID.randomUUID())
+                                .build();
 
-    /**
-     * CATCH-ALL EXCEPTION HANDLER (500)
-     *
-     * Any unexpected error
-     */
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGlobalException(
-            Exception ex,
-            WebRequest request
-    ) {
-        String requestPath = request.getDescription(false).replace("uri=", "");
-        String traceId = "ERR_" + UUID.randomUUID();
+                return ResponseEntity
+                                .status(HttpStatus.BAD_REQUEST)
+                                .body(errorResponse);
+        }
 
         /**
-         * LOG CRITICAL ERROR WITH FULL STACK TRACE
+         * MAX UPLOAD SIZE EXCEEDED HANDLER (400 Bad Request)
          *
-         * WHAT: Unexpected error
-         * WHERE: Class name, method name
-         * WHEN: Current timestamp
-         * WHY: Full stack trace for debugging
+         * Catches cases where a file upload is larger than configured limits.
          */
-        log.error(
-                "UNEXPECTED SERVER ERROR | " +
-                        "WHAT: Unhandled exception occurred | " +
-                        "WHERE: {} | " +
-                        "WHEN: {} | " +
-                        "WHY: {} | " +
-                        "STACK_TRACE_ID: {} | " +
-                        "SEVERITY: CRITICAL | " +
-                        "ACTION: Review logs immediately",
-                requestPath,
-                LocalDateTime.now(),
-                ex.getMessage(),
-                traceId,
-                ex  // This logs the full stack trace
-        );
+        @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+        public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceededException(
+                        org.springframework.web.multipart.MaxUploadSizeExceededException ex,
+                        WebRequest request) {
+                String requestPath = request.getDescription(false).replace("uri=", "");
+                log.warn("FILE UPLOAD TOO LARGE | PATH: {} | ERROR: {}", requestPath, ex.getMessage());
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                .error("Internal Server Error")
-                .message("Something went wrong. Please try again later.")
-                .path(requestPath)
-                .traceId(traceId)
-                .build();
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .error("Bad Request")
+                                .message("File size exceeds the maximum allowed limit (10MB per file, 20MB total per request).")
+                                .path(requestPath)
+                                .traceId("ERR_" + UUID.randomUUID())
+                                .build();
 
-        return ResponseEntity
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(errorResponse);
-    }
+                return ResponseEntity
+                                .status(HttpStatus.BAD_REQUEST)
+                                .body(errorResponse);
+        }
+
+        /**
+         * BUSINESS LOGIC VIOLATION (400 Bad Request)
+         */
+        @ExceptionHandler({ IllegalArgumentException.class, IllegalStateException.class })
+        public ResponseEntity<ErrorResponse> handleBusinessLogicException(
+                        RuntimeException ex,
+                        WebRequest request) {
+                String requestPath = request.getDescription(false).replace("uri=", "");
+                log.warn("BUSINESS LOGIC VIOLATION | PATH: {} | ERROR: {}", requestPath, ex.getMessage());
+
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .error("Bad Request")
+                                .message(ex.getMessage())
+                                .path(requestPath)
+                                .traceId("ERR_" + UUID.randomUUID())
+                                .build();
+
+                return ResponseEntity
+                                .status(HttpStatus.BAD_REQUEST)
+                                .body(errorResponse);
+        }
+
+        /**
+         * CONFLICT HANDLER (409)
+         */
+        @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+        public ResponseEntity<ErrorResponse> handleDataIntegrityViolationException(
+                        org.springframework.dao.DataIntegrityViolationException ex,
+                        WebRequest request) {
+                String requestPath = request.getDescription(false).replace("uri=", "");
+                log.error("DATABASE CONFLICT | PATH: {} | ERROR: {}", requestPath, ex.getMessage());
+
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.CONFLICT.value())
+                                .error("Conflict")
+                                .message("Data integrity violation. This email or resource might already be in use.")
+                                .path(requestPath)
+                                .traceId("ERR_" + UUID.randomUUID())
+                                .build();
+
+                return ResponseEntity
+                                .status(HttpStatus.CONFLICT)
+                                .body(errorResponse);
+        }
+
+        /**
+         * CATCH-ALL EXCEPTION HANDLER (500)
+         *
+         * Any unexpected error
+         */
+        @ExceptionHandler(Exception.class)
+        public ResponseEntity<ErrorResponse> handleGlobalException(
+                        Exception ex,
+                        WebRequest request) {
+                String requestPath = request.getDescription(false).replace("uri=", "");
+                String traceId = "ERR_" + UUID.randomUUID();
+
+                /**
+                 * LOG CRITICAL ERROR WITH FULL STACK TRACE
+                 *
+                 * WHAT: Unexpected error
+                 * WHERE: Class name, method name
+                 * WHEN: Current timestamp
+                 * WHY: Full stack trace for debugging
+                 */
+                log.error(
+                                "UNEXPECTED SERVER ERROR | " +
+                                                "WHAT: Unhandled exception occurred | " +
+                                                "WHERE: {} | " +
+                                                "WHEN: {} | " +
+                                                "WHY: {} | " +
+                                                "STACK_TRACE_ID: {} | " +
+                                                "SEVERITY: CRITICAL | " +
+                                                "ACTION: Review logs immediately",
+                                requestPath,
+                                LocalDateTime.now(),
+                                ex.getMessage(),
+                                traceId,
+                                ex // This logs the full stack trace
+                );
+
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                                .error("Internal Server Error")
+                                .message("Something went wrong. Please try again later.")
+                                .path(requestPath)
+                                .traceId(traceId)
+                                .build();
+
+                return ResponseEntity
+                                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                .body(errorResponse);
+        }
 }

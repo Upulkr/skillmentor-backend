@@ -1,4 +1,5 @@
 package com.skillmentor.repository;
+
 import com.skillmentor.entity.User;
 import com.skillmentor.entity.UserRole;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -7,9 +8,14 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 import java.util.List;
+
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
+
+    Optional<User> findByEmailIgnoreCase(String email);
+
+    Optional<User> findByClerkId(String clerkId);
 
     boolean existsByEmail(String email);
 

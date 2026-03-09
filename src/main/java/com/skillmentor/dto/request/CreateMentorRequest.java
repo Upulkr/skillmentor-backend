@@ -18,11 +18,11 @@ public class CreateMentorRequest {
      * Basic Information
      */
     @NotBlank(message = "First name is required")
-    @Length(min = 2, max = 50, message = "First name must be 2-50 characters")
+    @Size(min = 2, max = 50, message = "First name must be 2-50 characters")
     private String firstName;
 
     @NotBlank(message = "Last name is required")
-    @Length(min = 2, max = 50, message = "Last name must be 2-50 characters")
+    @Size(min = 2, max = 50, message = "Last name must be 2-50 characters")
     private String lastName;
 
     /**
@@ -39,15 +39,14 @@ public class CreateMentorRequest {
     /**
      * Phone
      */
-    @Pattern(regexp = "^[+]?[0-9]{10,13}$",
-            message = "Phone number must be valid")
+    @Pattern(regexp = "^[+]?[0-9]{10,13}$", message = "Phone number must be valid")
     private String phone;
 
     /**
      * Professional Information
      */
     @NotBlank(message = "Title is required")
-    @Length(min = 3, max = 100, message = "Title must be 3-100 characters")
+    @Size(min = 3, max = 100, message = "Title must be 3-100 characters")
     private String title;
 
     @NotBlank(message = "Profession is required")
@@ -71,7 +70,7 @@ public class CreateMentorRequest {
     /**
      * Bio - Professional biography
      */
-    @Length(max = 2000, message = "Bio cannot exceed 2000 characters")
+    @Size(max = 2000, message = "Bio cannot exceed 2000 characters")
     private String bio;
 
     /**
@@ -82,6 +81,7 @@ public class CreateMentorRequest {
     /**
      * Certification status
      */
+    @Builder.Default
     private Boolean isCertified = false;
 
     /**

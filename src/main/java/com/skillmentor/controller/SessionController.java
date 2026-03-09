@@ -1,89 +1,131 @@
 package com.skillmentor.controller;
 
 import com.skillmentor.dto.request.EnrollSessionRequest;
-import com.skillmentor.dto.response.MentorResponse;
 import com.skillmentor.dto.response.SessionResponse;
+import com.skillmentor.entity.User;
+import com.skillmentor.entity.UserRole;
+import com.skillmentor.exception.ResourceNotFoundException;
+import com.skillmentor.repository.UserRepository;
 import com.skillmentor.service.SessionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 /**
  * SESSION CONTROLLER
- *
- * Showing how to use DTOs properly
  */
 @RestController
 @RequestMapping("/api/v1/sessions")
 @RequiredArgsConstructor
+@Slf4j
 public class SessionController {
 
     private final SessionService sessionService;
+    private final UserRepository userRepository;
 
     /**
      * BOOK A SESSION
-     *
-     * Request: EnrollSessionRequest (DTO)
-     * Response: SessionResponse (DTO)
-     *
-     * WHY not use Session entity directly?
-     * - Entity has @Id, @GeneratedValue (can't set from API)
-     * - Entity has relationships (causes lazy-loading issues)
-     * - Entity has sensitive fields
-     * - Entity changes break API
-     * - DTO is the API contract - should be stable
+     * 
+     * @AuthenticationPrincipal String clerkId
+     *                          Spring Security injects the 'userId' we set in
+     *                          JwtAuthenticationFilter.
      */
     @PostMapping("/enroll")
+    @PreAuthorize("hasAnyRole('STUDENT', 'MENTOR', 'ADMIN')")
     public ResponseEntity<SessionResponse> enrollSession(
-            /**
-             * @Valid tells Spring:
-             * - Validate the DTO using @NotNull, @Email, etc.
-             * - If validation fails, return 400 Bad Request
-             * - Don't call controller method
-             */
             @RequestBody @Valid EnrollSessionRequest request,
-            @RequestHeader("Authorization") String bearerToken
-    ) {
-        // Extract user from JWT (more on this later)
-        Long studentId = extractUserIdFromToken(bearerToken);
+            @AuthenticationPrincipal String clerkId) {
+        // Fetch local database ID using Clerk ID
+        User user = userRepository.findByClerkId(clerkId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with clerkId: " + clerkId));
 
-        // Call service
-        SessionResponse response = sessionService.enrollSession(studentId, request);
+        SessionResponse response = sessionService.enrollSession(user.getId(), request);
 
-        // Return with 201 Created status
-        return ResponseEntity
-                .status(HttpStatus.CREATED)
-                .body(response);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     /**
-     * GET ALL SESSIONS
-     *
-     * Response: List of SessionResponse (DTOs)
+     * GET MY SESSIONS (Student Dashboard)
      */
-    @GetMapping("/sessions")
+    @GetMapping("/my-sessions")
+    public List<SessionResponse> getMySessions(@AuthenticationPrincipal String clerkId) {
+        User user = userRepository.findByClerkId(clerkId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
+        return sessionService.getStudentSessions(user.getId());
+    }
+
+    /**
+     * GET SINGLE SESSION
+     */
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('STUDENT', 'MENTOR', 'ADMIN')")
+    public SessionResponse getSession(@PathVariable Long id, @AuthenticationPrincipal String clerkId) {
+        User user = userRepository.findByClerkId(clerkId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        SessionResponse response = sessionService.getSessionById(id);
+
+        // Security check: Students can only see their own sessions
+        if (user.getRole().equals(UserRole.STUDENT) && !response.getStudentId().equals(user.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "You do not have permission to view this session");
+        }
+
+        return response;
+    }
+
+    /**
+     * ADMIN: Manage Bookings
+     */
+    @GetMapping("/admin/all")
+    @PreAuthorize("hasRole('ADMIN')")
     public List<SessionResponse> getAllSessions() {
         return sessionService.getAllSessions();
-        // Returns: [{ id: 1, mentorName: "John", ... }, ...]
+    }
+
+    @PostMapping("/admin/{id}/confirm-payment")
+    @PreAuthorize("hasRole('ADMIN')")
+    public SessionResponse confirmPayment(@PathVariable Long id) {
+        return sessionService.confirmPayment(id);
+    }
+
+    @PostMapping("/admin/{id}/complete")
+    @PreAuthorize("hasRole('ADMIN')")
+    public SessionResponse markComplete(@PathVariable Long id) {
+        return sessionService.markSessionComplete(id);
+    }
+
+    @PostMapping("/admin/{id}/meeting-link")
+    @PreAuthorize("hasRole('ADMIN')")
+    public SessionResponse addMeetingLink(
+            @PathVariable Long id,
+            @RequestBody com.skillmentor.dto.request.MeetingLinkRequest request) {
+        log.info("Adding meeting link for session: {} - URL: {}", id, request.getMeetingLink());
+        return sessionService.addMeetingLink(id, request.getMeetingLink());
     }
 
     /**
-     * GET MENTOR PROFILE
-     *
-     * Response: MentorResponse (DTO with full profile)
+     * UPLOAD PAYMENT SLIP
      */
-    @GetMapping("/mentors/{id}")
-    public MentorResponse getMentorProfile(@PathVariable Long id) {
-        return mentorService.getMentorProfile(id);
-        // Returns full profile with:
-        // - Mentor info
-        // - List of subjects taught
-        // - Statistics (avg rating, student count)
-        // - Calculated values (not just stored data)
+    @PostMapping("/{id}/payment-slip")
+    @PreAuthorize("hasAnyRole('STUDENT', 'ADMIN')")
+    public ResponseEntity<SessionResponse> uploadPaymentSlip(
+            @PathVariable Long id,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+
+        System.out.println(">>> HIT ENDPOINT: POST /api/v1/sessions/" + id + "/payment-slip");
+        org.slf4j.LoggerFactory.getLogger(SessionController.class).info("Uploading payment slip for session ID: {}",
+                id);
+
+        SessionResponse response = sessionService.uploadPaymentSlip(id, file);
+        return ResponseEntity.ok(response);
     }
 }

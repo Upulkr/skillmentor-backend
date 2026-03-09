@@ -47,6 +47,12 @@ public class SessionResponse {
     private String mentorName;
 
     /**
+     * Student information
+     */
+    private Long studentId;
+    private String studentName;
+
+    /**
      * Subject information
      */
     private Long subjectId;
@@ -86,6 +92,11 @@ public class SessionResponse {
      * - Frontend can conditionally show it
      */
     private String meetingLink;
+
+    /**
+     * Payment Slip URL - Link to the uploaded receipt
+     */
+    private String paymentSlipUrl;
 
     /**
      * When was this session created?

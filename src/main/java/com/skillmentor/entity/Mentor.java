@@ -12,14 +12,17 @@ import java.util.Set;
 
 @Entity
 @Table(name = "mentors")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-
+@ToString(exclude = { "user", "subjects" })
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
 public class Mentor {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @EqualsAndHashCode.Include
     private Long id;
 
     @OneToOne(fetch = FetchType.LAZY, optional = false)

@@ -4,26 +4,36 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.validator.constraints.Length;
 
 import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.Set;
 
+/**
+ * REVIEW ENTITY
+ */
 @Entity
-@Table(name = "subjects")
+@Table(name = "reviews")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@ToString(exclude = { "mentor", "sessions" })
+@ToString(exclude = { "session", "student", "mentor" })
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
-public class Subject {
+public class Review {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @EqualsAndHashCode.Include
     private Long id;
+
+    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "session_id", nullable = false, unique = true)
+    @NotNull(message = "Session is required")
+    private Session session;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "student_id", nullable = false)
+    @NotNull(message = "Student is required")
+    private User student;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "mentor_id", nullable = false)
@@ -31,21 +41,14 @@ public class Subject {
     private Mentor mentor;
 
     @Column(nullable = false)
-    @NotBlank(message = "Subject name is required")
-    @Length(min = 3, max = 100, message = "Name must be 3-100 characters")
-    private String name;
-
-    @Column
-    private String imageUrl;
+    @Min(1)
+    @Max(5)
+    private Integer rating;
 
     @Column(columnDefinition = "TEXT")
-    private String description;
+    private String reviewText;
 
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
-
-    @OneToMany(mappedBy = "subject", cascade = CascadeType.ALL, orphanRemoval = true)
-    @Builder.Default
-    private Set<Session> sessions = new HashSet<>();
 }
